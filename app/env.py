@@ -15,6 +15,10 @@ from app.tasks import get_expected_table, get_task_instructions, load_task_data
 
 class ClariGridEnv:
     def __init__(self, task_name: str = "easy", max_steps: int = 10):
+        allowed_tasks = {"easy", "medium", "hard"}
+        if task_name not in allowed_tasks:
+            raise ValueError(f"Invalid task_name '{task_name}'. Must be one of {sorted(allowed_tasks)}.")
+
         self.task_name = task_name
         self.max_steps = max_steps
         self._state: Optional[ClariGridState] = None
