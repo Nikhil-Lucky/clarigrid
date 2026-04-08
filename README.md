@@ -12,17 +12,19 @@ pinned: false
 
 ClariGrid is an OpenEnv-style environment for tabular data quality repair.
 
-The agent interacts with messy spreadsheet-like data and performs cleaning operations such as:
-- fixing missing values
-- correcting invalid formats
-- standardizing inconsistent entries
-- removing bad records
+The environment lets an AI agent interact with messy spreadsheet-like data, apply cleaning actions, receive intermediate rewards, and get a final score based on how close the cleaned table is to the expected output.
 
 ## Motivation
 
-Data cleaning is a real-world task performed by analysts, operations teams, and business users. ClariGrid turns this into an agent environment with structured actions, observations, rewards, and graders.
+Data cleaning is a real-world task performed by analysts, operations teams, and business users. ClariGrid turns this into an agent environment with:
+- structured observations
+- structured actions
+- deterministic grading
+- meaningful reward shaping
 
 ## Tasks
+
+ClariGrid includes 3 tasks with increasing difficulty.
 
 ### Easy
 Repair missing and invalid values:
@@ -32,12 +34,12 @@ Repair missing and invalid values:
 - country normalization
 
 ### Medium
-Standardize fields:
+Standardize inconsistent fields:
 - product names
 - prices
 - currency values
 - order dates
-- statuses
+- status labels
 
 ### Hard
 End-to-end dataset repair:
@@ -45,7 +47,7 @@ End-to-end dataset repair:
 - invalid values
 - normalization
 - impossible values
-- preserving correct rows
+- preserving already-correct rows
 
 ## Action Space
 
@@ -58,35 +60,95 @@ Supported actions:
 
 ## Observation Space
 
-The observation contains:
+Each observation contains:
 - task name
-- instructions
+- task instructions
 - current table
-- columns
+- column names
 - steps taken
-- max steps
+- maximum steps
+- known issues list
 - last action message
 
 ## Reward Design
 
-ClariGrid provides partial progress rewards:
+ClariGrid uses partial-progress reward shaping:
 - positive reward when the table gets closer to the expected cleaned output
 - negative reward when the table gets worse
-- small penalty for no-op or useless actions
-- bonus/penalty on finishing based on final quality
+- small penalty for no-op or unhelpful actions
+- finish bonus or penalty based on final quality
 
 ## Grading
 
-Each task has a deterministic grader that compares the current table to the expected cleaned table and returns a score in `[0.0, 1.0]`.
+Each task has a deterministic grader that compares the current table against the expected cleaned table and returns a score in the range `[0.0, 1.0]`.
+
+## Environment Structure
+
+The project includes:
+- typed Pydantic models
+- `reset()`
+- `step(action)`
+- `state()`
+- task-specific datasets
+- programmatic graders
+- reward shaping
+- baseline inference script
+- Docker support
+- Hugging Face Space deployment
+
+## Inference
+
+The baseline script is `inference.py`.
+
+It prints standardized logs in this format:
+- `[START]`
+- `[STEP]`
+- `[END]`
+
+This is used to produce reproducible baseline scores across tasks.
+
+## Hugging Face Space Endpoints
+
+The Docker Space runs a FastAPI server.
+
+### Root endpoint
+`/`
+
+Returns a simple status response:
+- message
+- status
+- current task
+
+### Run endpoint
+`/run`
+
+Executes the baseline inference script and returns:
+- `stdout`
+- `stderr`
+- `returncode`
 
 ## Project Structure
 
 ```text
 clarigrid/
 ├── app/
+│   ├── __init__.py
+│   ├── env.py
+│   ├── graders.py
+│   ├── models.py
+│   ├── rewards.py
+│   ├── tasks.py
+│   └── utils.py
 ├── data/
+│   ├── easy_task.json
+│   ├── medium_task.json
+│   └── hard_task.json
+├── server/
+│   └── app.py
+├── Dockerfile
 ├── inference.py
 ├── openenv.yaml
-├── Dockerfile
+├── pyproject.toml
 ├── requirements.txt
+├── test_run.py
 └── README.md
