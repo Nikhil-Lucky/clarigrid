@@ -1,0 +1,26 @@
+name: clarigrid
+description: OpenEnv-style environment for tabular data quality repair
+version: 0.1.0
+
+environment:
+  entry_point: app.env:ClariGridEnv
+  default_task: easy
+
+tasks:
+  - name: easy
+    description: Repair missing and invalid values
+    difficulty: easy
+
+  - name: medium
+    description: Standardize inconsistent fields
+    difficulty: medium
+
+  - name: hard
+    description: End-to-end dataset repair
+    difficulty: hard
+
+metadata:
+  domain: tabular-data-cleaning
+  category: data-quality
+  difficulty_range: easy-medium-hard
+  author: clarigrid-team

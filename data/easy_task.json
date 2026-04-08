@@ -1,0 +1,30 @@
+[
+  {
+    "customer_id": "C001",
+    "name": "Rahul",
+    "email": "rahul@example.com",
+    "signup_date": "2024-01-15",
+    "country": "India"
+  },
+  {
+    "customer_id": "C002",
+    "name": "Ananya",
+    "email": "",
+    "signup_date": "15/02/2024",
+    "country": "india"
+  },
+  {
+    "customer_id": "C003",
+    "name": "Vikram",
+    "email": "vikram_at_mail.com",
+    "signup_date": "2024/03/10",
+    "country": "IND"
+  },
+  {
+    "customer_id": "C004",
+    "name": "Sneha",
+    "email": "sneha@example.com",
+    "signup_date": "",
+    "country": "India"
+  }
+]

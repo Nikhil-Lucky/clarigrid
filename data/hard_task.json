@@ -1,0 +1,42 @@
+[
+  {
+    "employee_id": "E001",
+    "name": "Asha",
+    "department": "Engineering",
+    "email": "asha@company.com",
+    "salary": "120000",
+    "join_date": "2022-06-01"
+  },
+  {
+    "employee_id": "E001",
+    "name": "Asha R.",
+    "department": "engineering",
+    "email": "asha@company.com",
+    "salary": "120000.00",
+    "join_date": "01/06/2022"
+  },
+  {
+    "employee_id": "E002",
+    "name": "Karan",
+    "department": "HR",
+    "email": "karancompany.com",
+    "salary": "",
+    "join_date": "2021/09/15"
+  },
+  {
+    "employee_id": "E003",
+    "name": "Meera",
+    "department": "Finance ",
+    "email": "meera@company.com",
+    "salary": "95000",
+    "join_date": ""
+  },
+  {
+    "employee_id": "E004",
+    "name": "Rohit",
+    "department": "Sales",
+    "email": "rohit@company.com",
+    "salary": "-5000",
+    "join_date": "2023-11-10"
+  }
+]
