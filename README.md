@@ -1,3 +1,13 @@
+---
+title: ClariGrid
+emoji: 📊
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # ClariGrid
 
 ClariGrid is an OpenEnv-style environment for tabular data quality repair.
