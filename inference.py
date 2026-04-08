@@ -246,8 +246,6 @@ def main() -> None:
 
             action_str, action = choose_action(env, TASK_NAME, step)
 
-            # This is the key fix for Phase 2:
-            # make a real API call through the provided OpenAI-compatible proxy
             make_llm_proxy_call(client, TASK_NAME, step, action_str)
 
             result = env.step(action)
@@ -266,6 +264,12 @@ def main() -> None:
 
             if result.done:
                 break
+
+        # keep score strictly inside (0, 1) for validator
+        if score <= 0.0:
+            score = 0.01
+        elif score >= 1.0:
+            score = 0.99
 
         success = score >= 0.8
 
