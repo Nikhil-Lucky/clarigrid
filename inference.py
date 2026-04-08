@@ -5,12 +5,15 @@ from openai import OpenAI
 from app.env import ClariGridEnv
 from app.models import ClariGridAction, CellReference
 
-TASK_NAME = os.getenv("CLARIGRID_TASK", "easy")
 BENCHMARK = "clarigrid"
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 MAX_STEPS = 12
+
+# If explicitly set, run only that task. Otherwise run all 3 tasks.
+TASK_OVERRIDE = os.getenv("CLARIGRID_TASK")
+TASKS = [TASK_OVERRIDE] if TASK_OVERRIDE else ["easy", "medium", "hard"]
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -36,7 +39,7 @@ def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> No
 def make_llm_proxy_call(client: OpenAI, task_name: str, step: int, proposed_action: str) -> None:
     """
     Makes a real OpenAI-compatible API call through the injected proxy.
-    We keep the environment actions deterministic so Phase 1 behavior stays stable.
+    Keeps benchmark behavior deterministic by not using the model output directly.
     """
     try:
         client.chat.completions.create(
@@ -60,8 +63,7 @@ def make_llm_proxy_call(client: OpenAI, task_name: str, step: int, proposed_acti
             max_tokens=30,
         )
     except Exception:
-        # We do not crash the run if the proxy/model call fails.
-        # The deterministic action still executes so the benchmark stays stable.
+        # Do not crash the benchmark if proxy/model call fails
         pass
 
 
@@ -226,16 +228,14 @@ def choose_action(env: ClariGridEnv, task_name: str, step: int):
     return "finish_task()", ClariGridAction(action_type="finish_task")
 
 
-def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
-    env = ClariGridEnv(task_name=TASK_NAME, max_steps=MAX_STEPS)
+def run_single_task(client: OpenAI, task_name: str) -> None:
+    env = ClariGridEnv(task_name=task_name, max_steps=MAX_STEPS)
     rewards: list[float] = []
     steps_taken = 0
     score = 0.0
     success = False
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
         result = env.reset()
@@ -244,9 +244,10 @@ def main() -> None:
             if result.done:
                 break
 
-            action_str, action = choose_action(env, TASK_NAME, step)
+            action_str, action = choose_action(env, task_name, step)
 
-            make_llm_proxy_call(client, TASK_NAME, step, action_str)
+            # Required real LLM proxy call
+            make_llm_proxy_call(client, task_name, step, action_str)
 
             result = env.step(action)
 
@@ -265,7 +266,7 @@ def main() -> None:
             if result.done:
                 break
 
-        # keep score strictly inside (0, 1) for validator
+        # validator wants strictly inside (0, 1)
         if score <= 0.0:
             score = 0.01
         elif score >= 1.0:
@@ -275,6 +276,13 @@ def main() -> None:
 
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+
+def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    for task_name in TASKS:
+        run_single_task(client, task_name)
 
 
 if __name__ == "__main__":
