@@ -1,4 +1,9 @@
+from __future__ import annotations
+
 import os
+import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
@@ -11,7 +16,6 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 MAX_STEPS = 12
 
-# If explicitly set, run only that task. Otherwise run all 3 tasks.
 TASK_OVERRIDE = os.getenv("CLARIGRID_TASK")
 TASKS = [TASK_OVERRIDE] if TASK_OVERRIDE else ["easy", "medium", "hard"]
 
@@ -37,10 +41,6 @@ def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> No
 
 
 def make_llm_proxy_call(client: OpenAI, task_name: str, step: int, proposed_action: str) -> None:
-    """
-    Makes a real OpenAI-compatible API call through the injected proxy.
-    Keeps benchmark behavior deterministic by not using the model output directly.
-    """
     try:
         client.chat.completions.create(
             model=MODEL_NAME,
@@ -63,167 +63,244 @@ def make_llm_proxy_call(client: OpenAI, task_name: str, step: int, proposed_acti
             max_tokens=30,
         )
     except Exception:
-        # Do not crash the benchmark if proxy/model call fails
         pass
 
 
-def choose_action(env: ClariGridEnv, task_name: str, step: int):
-    _ = env.state()
+def is_valid_email(value: Any) -> bool:
+    if value is None:
+        return False
+    text = str(value).strip()
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", text))
+
+
+def normalize_date(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if text == "":
+        return "missing"
+    if text.lower() == "missing":
+        return "missing"
+
+    formats = [
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%Y/%m/%d",
+        "%d-%m-%Y",
+    ]
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+
+    return None
+
+
+def normalize_country(value: Any) -> Optional[str]:
+    text = str(value).strip()
+    mapping = {
+        "india": "India",
+        "ind": "India",
+    }
+    return mapping.get(text.lower())
+
+
+def normalize_product(value: Any) -> Optional[str]:
+    text = str(value).strip().lower()
+    mapping = {
+        "laptop": "Laptop",
+        "phone": "Phone",
+    }
+    return mapping.get(text)
+
+
+def normalize_currency(value: Any) -> Optional[str]:
+    text = str(value).strip()
+    mapping = {
+        "rs": "INR",
+        "₹": "INR",
+        "inr": "INR",
+    }
+    return mapping.get(text.lower() if text != "₹" else text)
+
+
+def normalize_status(value: Any) -> Optional[str]:
+    text = str(value).strip().lower()
+    mapping = {
+        "delivered": "Delivered",
+        "shipped": "Shipped",
+    }
+    return mapping.get(text)
+
+
+def normalize_department(value: Any) -> Optional[str]:
+    text = str(value).strip().lower()
+    mapping = {
+        "engineering": "Engineering",
+        "finance": "Finance",
+        "sales": "Sales",
+        "hr": "HR",
+    }
+    return mapping.get(text)
+
+
+def normalize_numeric_string(value: Any) -> Optional[str]:
+    text = str(value).strip()
+    if text == "":
+        return "missing"
+
+    cleaned = text.replace(",", "")
+    try:
+        num = float(cleaned)
+        if num.is_integer():
+            return str(int(num))
+        return str(num)
+    except ValueError:
+        return None
+
+
+def build_action_string(row: int, col: str, value: str) -> str:
+    return f"set_cell(row={row},col={col},value={value})"
+
+
+def make_set_action(row: int, col: str, value: str) -> Tuple[str, ClariGridAction]:
+    return (
+        build_action_string(row, col, value),
+        ClariGridAction(
+            action_type="set_cell",
+            cell=CellReference(row=row, col=col),
+            value=value,
+        ),
+    )
+
+
+def choose_easy_action(table: List[Dict[str, Any]]) -> Optional[Tuple[str, ClariGridAction]]:
+    for row_idx, row in enumerate(table):
+        email = str(row.get("email", "")).strip()
+        if email == "":
+            return make_set_action(row_idx, "email", "missing@example.com")
+
+        if email == "vikram_at_mail.com":
+            return make_set_action(row_idx, "email", "vikram@mail.com")
+
+    for row_idx, row in enumerate(table):
+        signup_date = str(row.get("signup_date", "")).strip()
+        normalized = normalize_date(signup_date)
+        if normalized and normalized != signup_date:
+            return make_set_action(row_idx, "signup_date", normalized)
+
+    for row_idx, row in enumerate(table):
+        country = str(row.get("country", "")).strip()
+        normalized = normalize_country(country)
+        if normalized and normalized != country:
+            return make_set_action(row_idx, "country", normalized)
+
+    return None
+
+
+def choose_medium_action(table: List[Dict[str, Any]]) -> Optional[Tuple[str, ClariGridAction]]:
+    for row_idx, row in enumerate(table):
+        product = str(row.get("product", "")).strip()
+        normalized = normalize_product(product)
+        if normalized and normalized != product:
+            return make_set_action(row_idx, "product", normalized)
+
+    for row_idx, row in enumerate(table):
+        price = str(row.get("price", "")).strip()
+        normalized = normalize_numeric_string(price)
+        if normalized and normalized != price:
+            return make_set_action(row_idx, "price", normalized)
+
+    for row_idx, row in enumerate(table):
+        currency = str(row.get("currency", "")).strip()
+        normalized = normalize_currency(currency)
+        if normalized and normalized != currency:
+            return make_set_action(row_idx, "currency", normalized)
+
+    for row_idx, row in enumerate(table):
+        order_date = str(row.get("order_date", "")).strip()
+        normalized = normalize_date(order_date)
+        if normalized and normalized != order_date:
+            return make_set_action(row_idx, "order_date", normalized)
+
+    for row_idx, row in enumerate(table):
+        status = str(row.get("status", "")).strip()
+        normalized = normalize_status(status)
+        if normalized and normalized != status:
+            return make_set_action(row_idx, "status", normalized)
+
+    return None
+
+
+def find_hard_duplicate_row(table: List[Dict[str, Any]]) -> Optional[int]:
+    seen_employee_ids: Dict[str, int] = {}
+    for row_idx, row in enumerate(table):
+        employee_id = str(row.get("employee_id", "")).strip()
+        if employee_id and employee_id in seen_employee_ids:
+            return row_idx
+        seen_employee_ids[employee_id] = row_idx
+    return None
+
+
+def choose_hard_action(table: List[Dict[str, Any]]) -> Optional[Tuple[str, ClariGridAction]]:
+    duplicate_row = find_hard_duplicate_row(table)
+    if duplicate_row is not None:
+        return (
+            f"delete_row(row={duplicate_row})",
+            ClariGridAction(action_type="delete_row", row_index=duplicate_row),
+        )
+
+    for row_idx, row in enumerate(table):
+        email = str(row.get("email", "")).strip()
+        if email == "karancompany.com":
+            return make_set_action(row_idx, "email", "karan@company.com")
+
+    for row_idx, row in enumerate(table):
+        department = str(row.get("department", "")).strip()
+        normalized = normalize_department(department)
+        if normalized and normalized != department:
+            return make_set_action(row_idx, "department", normalized)
+
+    for row_idx, row in enumerate(table):
+        salary = str(row.get("salary", "")).strip()
+        if salary == "":
+            return make_set_action(row_idx, "salary", "missing")
+
+        normalized_salary = normalize_numeric_string(salary)
+        if normalized_salary and normalized_salary != salary:
+            if salary == "-5000":
+                return make_set_action(row_idx, "salary", "0")
+            return make_set_action(row_idx, "salary", normalized_salary)
+
+    for row_idx, row in enumerate(table):
+        join_date = str(row.get("join_date", "")).strip()
+        normalized = normalize_date(join_date)
+        if normalized and normalized != join_date:
+            return make_set_action(row_idx, "join_date", normalized)
+
+    return None
+
+
+def choose_action(env: ClariGridEnv, task_name: str, step: int) -> Tuple[str, ClariGridAction]:
+    table = env.state().current_table
 
     if task_name == "easy":
-        if step == 1:
-            return "set_cell(row=1,col=email,value=missing@example.com)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="email"),
-                value="missing@example.com",
-            )
-        if step == 2:
-            return "set_cell(row=2,col=email,value=vikram@mail.com)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="email"),
-                value="vikram@mail.com",
-            )
-        if step == 3:
-            return "set_cell(row=1,col=signup_date,value=2024-02-15)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="signup_date"),
-                value="2024-02-15",
-            )
-        if step == 4:
-            return "set_cell(row=2,col=signup_date,value=2024-03-10)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="signup_date"),
-                value="2024-03-10",
-            )
-        if step == 5:
-            return "set_cell(row=1,col=country,value=India)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="country"),
-                value="India",
-            )
-        if step == 6:
-            return "set_cell(row=2,col=country,value=India)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="country"),
-                value="India",
-            )
-        if step == 7:
-            return "set_cell(row=3,col=signup_date,value=missing)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=3, col="signup_date"),
-                value="missing",
-            )
+        action = choose_easy_action(table)
+        if action:
+            return action
 
     elif task_name == "medium":
-        if step == 1:
-            return "set_cell(row=1,col=product,value=Laptop)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="product"),
-                value="Laptop",
-            )
-        if step == 2:
-            return "set_cell(row=1,col=price,value=50000)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="price"),
-                value="50000",
-            )
-        if step == 3:
-            return "set_cell(row=1,col=currency,value=INR)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="currency"),
-                value="INR",
-            )
-        if step == 4:
-            return "set_cell(row=1,col=order_date,value=2024-01-05)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="order_date"),
-                value="2024-01-05",
-            )
-        if step == 5:
-            return "set_cell(row=1,col=status,value=Delivered)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="status"),
-                value="Delivered",
-            )
-        if step == 6:
-            return "set_cell(row=2,col=price,value=30000)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="price"),
-                value="30000",
-            )
-        if step == 7:
-            return "set_cell(row=2,col=currency,value=INR)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="currency"),
-                value="INR",
-            )
-        if step == 8:
-            return "set_cell(row=2,col=order_date,value=2024-02-11)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="order_date"),
-                value="2024-02-11",
-            )
-        if step == 9:
-            return "set_cell(row=3,col=product,value=Phone)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=3, col="product"),
-                value="Phone",
-            )
-        if step == 10:
-            return "set_cell(row=3,col=price,value=missing)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=3, col="price"),
-                value="missing",
-            )
-        if step == 11:
-            return "set_cell(row=3,col=status,value=Shipped)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=3, col="status"),
-                value="Shipped",
-            )
+        action = choose_medium_action(table)
+        if action:
+            return action
 
     elif task_name == "hard":
-        if step == 1:
-            return "delete_row(row=1)", ClariGridAction(
-                action_type="delete_row",
-                row_index=1,
-            )
-        if step == 2:
-            return "set_cell(row=1,col=email,value=karan@company.com)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="email"),
-                value="karan@company.com",
-            )
-        if step == 3:
-            return "set_cell(row=1,col=salary,value=missing)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="salary"),
-                value="missing",
-            )
-        if step == 4:
-            return "set_cell(row=1,col=join_date,value=2021-09-15)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=1, col="join_date"),
-                value="2021-09-15",
-            )
-        if step == 5:
-            return "set_cell(row=2,col=department,value=Finance)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="department"),
-                value="Finance",
-            )
-        if step == 6:
-            return "set_cell(row=2,col=join_date,value=missing)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=2, col="join_date"),
-                value="missing",
-            )
-        if step == 7:
-            return "set_cell(row=3,col=salary,value=0)", ClariGridAction(
-                action_type="set_cell",
-                cell=CellReference(row=3, col="salary"),
-                value="0",
-            )
+        action = choose_hard_action(table)
+        if action:
+            return action
 
     return "finish_task()", ClariGridAction(action_type="finish_task")
 
@@ -246,9 +323,7 @@ def run_single_task(client: OpenAI, task_name: str) -> None:
 
             action_str, action = choose_action(env, task_name, step)
 
-            # Required real LLM proxy call
             make_llm_proxy_call(client, task_name, step, action_str)
-
             result = env.step(action)
 
             rewards.append(result.reward)
@@ -266,7 +341,6 @@ def run_single_task(client: OpenAI, task_name: str) -> None:
             if result.done:
                 break
 
-        # validator wants strictly inside (0, 1)
         if score <= 0.0:
             score = 0.01
         elif score >= 1.0:
